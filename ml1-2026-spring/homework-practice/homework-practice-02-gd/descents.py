@@ -1,6 +1,10 @@
 import numpy as np
 from abc import ABC, abstractmethod
-from interfaces import LearningRateSchedule, AbstractOptimizer, LinearRegressionInterface
+from interfaces import (
+    LearningRateSchedule,
+    AbstractOptimizer,
+    LinearRegressionInterface,
+)
 
 
 # ===== Learning Rate Schedules =====
@@ -33,11 +37,13 @@ class BaseDescent(AbstractOptimizer, ABC):
     Ответственен только за имплементацию общего алгоритма спуска.
     Все его составные части (learning rate, loss function+regularization) находятся вне зоны ответственности этого класса (см. Single Responsibility Principle).
     """
-    def __init__(self, 
-                 lr_schedule: LearningRateSchedule = TimeDecayLR(), 
-                 tolerance: float = 1e-6,
-                 max_iter: int = 1000
-                ):
+
+    def __init__(
+        self,
+        lr_schedule: LearningRateSchedule = TimeDecayLR(),
+        tolerance: float = 1e-6,
+        max_iter: int = 1000,
+    ):
         self.lr_schedule = lr_schedule
         self.tolerance = tolerance
         self.max_iter = max_iter
@@ -113,14 +119,14 @@ class SAGDescent(BaseDescent):
 
         if self.grad_memory is None:
             ...
-            # TODO: инициализировать хранилища при первом вызове 
+            # TODO: инициализировать хранилища при первом вызове
 
         # TODO: реализовать SAG
         raise NotImplementedError()
 
 
 class MomentumDescent(BaseDescent):
-    def __init__(self,  *args, beta=0.9, **kwargs):
+    def __init__(self, *args, beta=0.9, **kwargs):
         super().__init__(*args, **kwargs)
         self.beta = beta
         self.velocity = None
@@ -147,11 +153,11 @@ class Adam(BaseDescent):
 # ===== Non-iterative Algorithms ====
 class AnalyticSolutionOptimizer(AbstractOptimizer):
     """
-    Универсальный дамми-класс для вызова аналитических решений 
+    Универсальный дамми-класс для вызова аналитических решений
     """
+
     def __init__(self):
         self.model = None
-    
 
     def optimize(self) -> None:
         """
