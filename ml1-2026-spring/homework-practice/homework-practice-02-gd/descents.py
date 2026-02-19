@@ -151,24 +151,24 @@ class SAGDescent(BaseDescent):
         random_indices = np.random.choice(
             num_objects, size=self.batch_size, replace=False
         )
-        
+
         for idx in random_indices:
             X_object = X_train[idx : idx + 1]
-            y_object = y_object[idx : idx + 1]
-            
+            y_object = y_train[idx : idx + 1]
+
             gradient_idx = self.model.compute_gradients(X_object, y_object)
 
             self.grad_sum -= self.grad_memory[idx]
             self.grad_sum += gradient_idx
-            
+
             self.grad_memory[idx] = gradient_idx
-            
+
         average_grad = self.grad_sum / num_objects
         lr = self.lr_schedule.get_lr(self.iteration)
-        
+
         w_delta = -lr * average_grad
         self.model.w += w_delta
-    
+
         return w_delta
 
 
@@ -179,8 +179,18 @@ class MomentumDescent(BaseDescent):
         self.velocity = None
 
     def _update_weights(self) -> np.ndarray:
-        # TODO: реализовать градиентный спуск с моментумом
-        raise NotImplementedError()
+        if self.velocity is None:
+            self.velocity = np.zeros_like(self.model.w)
+
+        gradient = self.model.compute_gradients()
+        lr = self.lr_schedule.get_lr(self.iteration)
+
+        self.velocity = self.beta * self.velocity + lr * gradient
+
+        w_delta = -self.velocity
+        self.model.w += w_delta
+
+        return w_delta
 
 
 class Adam(BaseDescent):
@@ -193,8 +203,25 @@ class Adam(BaseDescent):
         self.v = None
 
     def _update_weights(self) -> np.ndarray:
-        # TODO: реализовать Adam по формуле из ноутбука
-        raise NotImplementedError()
+        if (self.m is None) or (self.v is None):
+            self.m = np.zeros_like(self.model.w)
+            self.v = np.zeros_like(self.model.w)
+
+        gradient = self.model.compute_gradients()
+
+        self.m = self.beta1 * self.m + (1 - self.beta1) * gradient
+        self.v = self.beta2 * self.v + (1 - self.beta2) * (gradient**2)
+
+        iter_biased = self.iteration + 1
+        m_hat = self.m / (1 - self.beta1**iter_biased)
+        v_hat = self.v / (1 - self.beta2**iter_biased)
+
+        lr = self.lr_schedule.get_lr(self.iteration)
+
+        w_diff = -(lr * m_hat) / (np.sqrt(v_hat) + self.eps)
+        self.model.w += w_diff
+
+        return w_diff
 
 
 # ===== Non-iterative Algorithms ====
