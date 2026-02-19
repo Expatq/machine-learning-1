@@ -8,6 +8,7 @@ from interfaces import (
 from descents import AnalyticSolutionOptimizer
 from typing import Dict, Type, Optional, Callable
 from abc import abstractmethod, ABC
+import scipy.sparse.linalg
 
 
 class MSELoss(LossFunction, LossFunctionClosedFormMixin):
@@ -30,8 +31,7 @@ class MSELoss(LossFunction, LossFunctionClosedFormMixin):
 
         returns: float, значение MSE на данных X,y для весов w
         """
-        raise NotImplementedError()
-        # TODO: implement
+        return np.mean((np.dot(X, w) - y) ** 2)
 
     def gradient(self, X: np.ndarray, y: np.ndarray, w: np.ndarray) -> np.ndarray:
         """
@@ -41,8 +41,10 @@ class MSELoss(LossFunction, LossFunctionClosedFormMixin):
 
         returns: np.ndarray, численный градиент MSE в точке w
         """
-        raise NotImplementedError()
-        # TODO: implement
+        # 2/n * (X^T X w - X^T y)
+        num_rows = X.shape[0]
+        error = (X @ w) - y
+        return (2 / num_rows) * (X.T @ error)
 
     def analytic_solution(self, X: np.ndarray, y: np.ndarray) -> np.ndarray:
         """
@@ -66,7 +68,10 @@ class MSELoss(LossFunction, LossFunctionClosedFormMixin):
 
         returns: np.ndarray, вектор весов, вычисленный при помощи классического аналитического решения
         """
-        raise NotImplementedError()
+        # w = (X^\top X)^{-1} X^\top y
+        xt_x = X.T @ X
+        xt_y = X.T @ y
+        return np.linalg.solve(xt_x, xt_y)
 
     @classmethod
     def _svd_analytic_solution(cls, X: np.ndarray, y: np.ndarray) -> np.ndarray:
@@ -76,7 +81,18 @@ class MSELoss(LossFunction, LossFunctionClosedFormMixin):
 
         returns: np.ndarray, вектор весов, вычисленный при помощи аналитического решения на SVD
         """
-        raise NotImplementedError()
+        if len(X.shape) != 2:
+            raise ValueError(
+                f"X must be a matrix, but len(X.shape)={len(X.shape)}, X.shape={X.shape}"
+            )
+
+        k_max = min(X.shape) - 1
+        U, S, V_t = scipy.sparse.linalg.svds(X, k=k_max)
+
+        S_inv = np.diag(1 / S)
+        w = V_t.T @ S_inv @ U.T @ y
+
+        return w
 
 
 class L2Regularization(LossFunction):
@@ -124,8 +140,9 @@ class CustomLinearRegression(LinearRegressionInterface):
         """
         returns: np.ndarray, вектор \hat{y}
         """
-        # TODO: реализовать функцию предсказания в линейной регрессии
-        raise NotImplementedError("predict function is not implemented")
+        if self.w is None:
+            raise ValueError("You must call .fit() first!")
+        return X @ self.w
 
     def compute_gradients(
         self, X_batch: np.ndarray | None = None, y_batch: np.ndarray | None = None
@@ -134,7 +151,16 @@ class CustomLinearRegression(LinearRegressionInterface):
         returns: np.ndarray, градиент функции потерь при текущих весах (self.w)
         Если переданы аргументы, то градиент вычисляется по ним, иначе - по self.X_train и self.y_train
         """
-        raise NotImplementedError("Gradient caclucation is not implemented")
+        X_current = X_batch if X_batch is not None else self.X_train
+        y_current = y_batch if y_batch is not None else self.y_train
+
+        if self.w is None:
+            w_dimension = (
+                X_batch.shape[1] if X_batch is not None else self.X_train.shape[1]
+            )
+            self.w = np.zeros(w_dimension)
+
+        return self.loss_function.gradient(X_current, y_current, self.w)
 
     def compute_loss(
         self, X_batch: np.ndarray | None = None, y_batch: np.ndarray | None = None
@@ -143,7 +169,13 @@ class CustomLinearRegression(LinearRegressionInterface):
         returns: np.ndarray, значение функции потерь при текущих весах (self.w) по self.X_train, self.y_train
         Если переданы аргументы, то градиент вычисляется по ним, иначе - по self.X_train и self.y_train
         """
-        raise NotImplementedError("Loss calculation is not implemented")
+        if self.w is None:
+            raise ValueError("You must call .fit() first!")
+
+        X_current = X_batch if X_batch is not None else self.X_train
+        y_current = y_batch if y_batch is not None else self.y_train
+
+        return self.loss_function.loss(X_current, y_current, self.w)
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> None:
         """
@@ -152,7 +184,7 @@ class CustomLinearRegression(LinearRegressionInterface):
         X: np.ndarray,
         y: np.ndarray
         """
-        # TODO: реализовать обучение модели
         self.X_train, self.y_train = X, y
+        self.w = np.random.randn(X.shape[1]) * 0.01
 
-        raise NotImplementedError("Linear Regression training is not implemented")
+        self.optimizer.optimize()

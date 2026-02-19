@@ -26,8 +26,7 @@ class TimeDecayLR(LearningRateSchedule):
         """
         returns: float, learning rate для iteration шага обучения
         """
-        # TODO: реализовать формулу затухающего шага обучения
-        raise NotImplementedError()
+        return self.lambda_ * ((self.s0 / (self.s0 + iteration)) ** self.p)
 
 
 # ===== Base Optimizer =====
@@ -76,19 +75,35 @@ class BaseDescent(AbstractOptimizer, ABC):
         Оркестрирует весь алгоритм градиентного спуска.
         """
         ...
-        # TODO: implement
-        # в конце также приcваивает атрибуту модели полученный loss_history
+        current_loss = self.model.compute_loss()
+        self.model.loss_history = [current_loss]
+
+        while self.iteration < self.max_iter:
+            loss_delta = self._step()
+
+            if np.any(np.isnan(loss_delta)):
+                break
+
+            if np.sum(loss_delta**2) < self.tolerance:
+                break
+
+            new_loss = self.model.compute_loss()
+            self.model.loss_history.append(new_loss)
 
 
 # ===== Specific Optimizers =====
 class VanillaGradientDescent(BaseDescent):
     def _update_weights(self) -> np.ndarray:
-        # TODO: реализовать vanilla градиентный спуск
         # Можно использовать атрибуты класса self.model
-        X_train = self.model.X_train
-        y_train = self.model.y_train
-        # gradient = ...
-        raise NotImplementedError()
+        # gradient = 2/n * (X^T X w - X^T y)
+
+        gradient = self.model.compute_gradients()
+        lr = self.lr_schedule.get_lr(self.iteration)
+
+        w_delta = -lr * gradient
+        self.model.w += w_delta
+
+        return w_delta
 
 
 class StochasticGradientDescent(BaseDescent):
@@ -97,11 +112,24 @@ class StochasticGradientDescent(BaseDescent):
         self.batch_size = batch_size
 
     def _update_weights(self) -> np.ndarray:
-        # TODO: реализовать стохастический градиентный спуск
         # 1) выбрать случайный батч
         # 2) вычислить градиенты на батче
         # 3) обновить веса модели
-        raise NotImplementedError()
+        total_objects = self.model.X_train.shape[0]
+        random_indices = np.random.choice(
+            total_objects, size=self.batch_size, replace=False
+        )
+
+        X_batch = self.model.X_train[random_indices]
+        y_batch = self.model.y_train[random_indices]
+
+        gradient = self.model.compute_gradients(X_batch=X_batch, y_batch=y_batch)
+        lr = self.lr_schedule.get_lr(self.iteration)
+
+        w_delta = -lr * gradient
+        self.model.w += w_delta
+
+        return w_delta
 
 
 class SAGDescent(BaseDescent):
@@ -112,17 +140,36 @@ class SAGDescent(BaseDescent):
         self.batch_size = batch_size
 
     def _update_weights(self) -> np.ndarray:
-        # TODO: реализовать SAG
         X_train = self.model.X_train
         y_train = self.model.y_train
         num_objects, num_features = X_train.shape
 
         if self.grad_memory is None:
-            ...
-            # TODO: инициализировать хранилища при первом вызове
+            self.grad_memory = np.zeros(shape=(num_objects, num_features))
+            self.grad_sum = np.zeros(num_features)
 
-        # TODO: реализовать SAG
-        raise NotImplementedError()
+        random_indices = np.random.choice(
+            num_objects, size=self.batch_size, replace=False
+        )
+        
+        for idx in random_indices:
+            X_object = X_train[idx : idx + 1]
+            y_object = y_object[idx : idx + 1]
+            
+            gradient_idx = self.model.compute_gradients(X_object, y_object)
+
+            self.grad_sum -= self.grad_memory[idx]
+            self.grad_sum += gradient_idx
+            
+            self.grad_memory[idx] = gradient_idx
+            
+        average_grad = self.grad_sum / num_objects
+        lr = self.lr_schedule.get_lr(self.iteration)
+        
+        w_delta = -lr * average_grad
+        self.model.w += w_delta
+    
+        return w_delta
 
 
 class MomentumDescent(BaseDescent):
@@ -163,5 +210,15 @@ class AnalyticSolutionOptimizer(AbstractOptimizer):
         """
         Определяет аналитическое решение и назначает его весам модели.
         """
-        # не должна содержать непосредственных формул аналитического решения, за него ответственен другой объект
-        ...
+        if not hasattr(self.model.loss_function, "analytic_solution"):
+            raise NotImplementedError(
+                "Loss function does not support analytic solution"
+            )
+
+        best_w = self.model.loss_function.analytic_solution(
+            self.model.X_train, self.model.y_train
+        )
+
+        self.model.w = best_w
+        current_loss = self.model.compute_loss()
+        self.model.loss_history = [current_loss]
