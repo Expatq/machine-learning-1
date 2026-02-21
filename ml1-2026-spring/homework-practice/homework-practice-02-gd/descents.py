@@ -74,7 +74,6 @@ class BaseDescent(AbstractOptimizer, ABC):
         """
         Оркестрирует весь алгоритм градиентного спуска.
         """
-        ...
         current_loss = self.model.compute_loss()
         self.model.loss_history = [current_loss]
 
@@ -138,6 +137,7 @@ class SAGDescent(BaseDescent):
         self.grad_memory = None
         self.grad_sum = None
         self.batch_size = batch_size
+        self.seen = None
 
     def _update_weights(self) -> np.ndarray:
         X_train = self.model.X_train
@@ -147,23 +147,36 @@ class SAGDescent(BaseDescent):
         if self.grad_memory is None:
             self.grad_memory = np.zeros(shape=(num_objects, num_features))
             self.grad_sum = np.zeros(num_features)
+            self.seen = np.zeros(num_objects, dtype=bool)
 
         random_indices = np.random.choice(
             num_objects, size=self.batch_size, replace=False
         )
 
-        for idx in random_indices:
-            X_object = X_train[idx : idx + 1]
-            y_object = y_train[idx : idx + 1]
+        # for idx in random_indices:
+        #     X_object = X_train[idx : idx + 1]
+        #     y_object = y_train[idx : idx + 1]
 
-            gradient_idx = self.model.compute_gradients(X_object, y_object)
+        #     gradient_idx = self.model.compute_gradients(X_object, y_object)
 
-            self.grad_sum -= self.grad_memory[idx]
-            self.grad_sum += gradient_idx
+        #     self.grad_sum -= self.grad_memory[idx]
+        #     self.grad_sum += gradient_idx
 
-            self.grad_memory[idx] = gradient_idx
+        #     self.grad_memory[idx] = gradient_idx
 
-        average_grad = self.grad_sum / num_objects
+        X_batch = X_train[random_indices]
+        y_batch = y_train[random_indices]
+
+        new_grads = self.model.compute_per_sample_gradients(X_batch, y_batch)
+        old_grads = self.grad_memory[random_indices]
+
+        self.grad_sum += np.sum(new_grads - old_grads, axis=0)
+        self.grad_memory[random_indices] = new_grads
+
+        self.seen[random_indices] = True
+        num_seen = self.seen.sum()
+
+        average_grad = self.grad_sum / num_seen
         lr = self.lr_schedule.get_lr(self.iteration)
 
         w_delta = -lr * average_grad

@@ -31,7 +31,7 @@ class MSELoss(LossFunction, LossFunctionClosedFormMixin):
 
         returns: float, значение MSE на данных X,y для весов w
         """
-        return np.mean((np.dot(X, w) - y) ** 2)
+        return np.mean((X @ w - y) ** 2)
 
     def gradient(self, X: np.ndarray, y: np.ndarray, w: np.ndarray) -> np.ndarray:
         """
@@ -45,6 +45,24 @@ class MSELoss(LossFunction, LossFunctionClosedFormMixin):
         num_rows = X.shape[0]
         error = (X @ w) - y
         return (2 / num_rows) * (X.T @ error)
+
+    def per_sample_gradient(
+        self, X: np.ndarray, y: np.ndarray, w: np.ndarray
+    ) -> np.ndarray:
+        """
+        Векторизованное вычисление градиента для каждого объекта.
+
+        X: shape (n_samples, n_features)
+        y: shape (n_samples,)
+        w: shape (n_features,)
+
+        returns: shape (n_samples, n_features)
+        """
+        predictions = X @ w
+        errors = predictions - y
+        per_sample_grads = 2 * X * errors[:, np.newaxis]
+
+        return per_sample_grads
 
     def analytic_solution(self, X: np.ndarray, y: np.ndarray) -> np.ndarray:
         """
@@ -95,6 +113,92 @@ class MSELoss(LossFunction, LossFunctionClosedFormMixin):
         return w
 
 
+class LogCosh(LossFunction):
+    def __init__(self): ...
+
+    def loss(self, X: np.ndarray, y: np.ndarray, w: np.ndarray) -> np.ndarray:
+        predict = X @ w
+        errors = predict - y
+
+        # log(cosh(x)) = log((e^x + e^-x)/2) =
+        # = log(e^x(1 + e^-2x)/2) = x + log(1 + e^-2x) - log(2)
+        # при x > 0.
+        abs_errors = np.abs(errors)
+        return np.mean(abs_errors + np.log1p(np.exp(-2 * abs_errors)) - np.log(2))
+
+    def gradient(self, X: np.ndarray, y: np.ndarray, w: np.ndarray) -> np.ndarray:
+        """
+        grad = 1/n * X^T * tanh(Xw - y)
+        """
+        num_rows = X.shape[0]
+        predict = X @ w
+        errors = predict - y
+
+        return (X.T @ np.tanh(errors)) / num_rows
+
+    def per_sample_gradient(
+        self, X: np.ndarray, y: np.ndarray, w: np.ndarray
+    ) -> np.ndarray:
+        predict = X @ w
+        errors = predict - y
+        return X * np.tanh(errors)[:, np.newaxis]
+
+
+class HuberLoss(LossFunction):
+    def __init__(self, delta: float = 1.0):
+        """
+        delta: Параметр перехода от квадратичной к линейной функции
+        """
+        self.delta = delta
+
+    def loss(self, X: np.ndarray, y: np.ndarray, w: np.ndarray) -> float:
+        predictions = X @ w
+        errors = predictions - y
+        abs_errors = np.abs(errors)
+
+        quadratic_mask = abs_errors < self.delta
+
+        quadratic_loss = 0.5 * (errors[quadratic_mask] ** 2)
+        linear_loss = self.delta * abs_errors[~quadratic_mask] - 0.5 * (self.delta**2)
+
+        total_loss = np.sum(quadratic_loss) + np.sum(linear_loss)
+        return total_loss / X.shape[0]
+
+    def gradient(self, X: np.ndarray, y: np.ndarray, w: np.ndarray) -> np.ndarray:
+        """
+        Градиент функции Хууууууубера.
+        """
+        predictions = X @ w
+        errors = predictions - y
+        objects_cnt = X.shape[0]
+
+        grad_vector = np.zeros_like(errors)
+
+        quadratic_mask = np.abs(errors) < self.delta
+
+        grad_vector[quadratic_mask] = errors[quadratic_mask]
+        grad_vector[~quadratic_mask] = self.delta * np.sign(errors[~quadratic_mask])
+
+        return (X.T @ grad_vector) / objects_cnt
+
+    def per_sample_gradient(
+        self, X: np.ndarray, y: np.ndarray, w: np.ndarray
+    ) -> np.ndarray:
+        """
+        dL/dz_i * x_i я хочу пиво многа
+        """
+        predictions = X @ w
+        errors = predictions - y
+
+        grad_vector = np.zeros_like(errors)
+        quadratic_mask = np.abs(errors) < self.delta
+
+        grad_vector[quadratic_mask] = errors[quadratic_mask]
+        grad_vector[~quadratic_mask] = self.delta * np.sign(errors[~quadratic_mask])
+
+        return X * grad_vector[:, np.newaxis]
+
+
 class L2Regularization(LossFunction):
 
     def __init__(
@@ -109,14 +213,24 @@ class L2Regularization(LossFunction):
         # analytic_solution_func is meant to be passed separately,
         # as it is not linear to core solution
 
+    def loss(self, X: np.ndarray, y: np.ndarray, w: np.ndarray) -> np.ndarray:
+        """
+        Q(w) = MSE(w) + (mu/2) * ||w||^2
+        """
+        return self.core_loss.loss(X, y, w) + (self.mu_rate / 2) * np.sum(w**2)
+
     def gradient(self, X: np.ndarray, y: np.ndarray, w: np.ndarray) -> np.ndarray:
-
+        """
+        \nabla Q(w) = \nabla MSE(w) + mu * w
+        """
         core_part = self.core_loss.gradient(X, y, w)
+        penalty_part = self.mu_rate * w
+        return core_part + penalty_part
 
-        penalty_part = ...
-
-        raise NotImplementedError()
-        # TODO: implement
+    def per_sample_gradient(self, X, y, w):
+        core_part = self.core_loss.per_sample_gradient(X, y, w)
+        penalty_part = self.mu_rate * w
+        return core_part + penalty_part
 
 
 class CustomLinearRegression(LinearRegressionInterface):
@@ -161,6 +275,25 @@ class CustomLinearRegression(LinearRegressionInterface):
             self.w = np.zeros(w_dimension)
 
         return self.loss_function.gradient(X_current, y_current, self.w)
+
+    def compute_per_sample_gradients(
+        self, X_batch: np.ndarray | None = None, y_batch: np.ndarray | None = None
+    ) -> np.ndarray:
+        """
+        Если переданы аргументы, то градиенты вычисляются по ним, иначе - по self.X_train и self.y_train
+        returns: np.ndarray, shape (batch_size, n_features) — матрица градиентов,
+                где i-я строка — градиент по i-му объекту батча.
+        """
+        X_current = X_batch if X_batch is not None else self.X_train
+        y_current = y_batch if y_batch is not None else self.y_train
+
+        if self.w is None:
+            w_dimension = (
+                X_batch.shape[1] if X_batch is not None else self.X_train.shape[1]
+            )
+            self.w = np.zeros(w_dimension)
+
+        return self.loss_function.per_sample_gradient(X_current, y_current, self.w)
 
     def compute_loss(
         self, X_batch: np.ndarray | None = None, y_batch: np.ndarray | None = None

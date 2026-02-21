@@ -27,6 +27,19 @@ class LossFunction(ABC):
         """
         ...
 
+    @abstractmethod
+    def per_sample_gradient(
+        self, X: np.ndarray, y: np.ndarray, w: np.ndarray
+    ) -> np.ndarray:
+        """
+        X: np.ndarray, матрица регрессоров
+        y: np.ndarray, вектор таргета
+        w: np.ndarray, вектор весов
+
+        returns: np.ndarray, shape (n_samples, n_features), численные градиенты функции потерь в точке w
+        """
+        ...
+
 
 class LossFunctionClosedFormMixin(ABC):
 
@@ -57,6 +70,17 @@ class LinearRegressionInterface(ABC):
         """
         returns: np.ndarray, градиент функции потерь при текущих весах (self.w)
         Если переданы аргументы, то градиент вычисляется по ним, иначе - по self.X_train и self.y_train
+        """
+        ...
+
+    @abstractmethod
+    def compute_per_sample_gradients(
+        self, X_batch: np.ndarray | None = None, y_batch: np.ndarray | None = None
+    ) -> np.ndarray:
+        """
+        Если переданы аргументы, то градиенты вычисляются по ним, иначе - по self.X_train и self.y_train
+        returns: np.ndarray, shape (batch_size, n_features) — матрица градиентов,
+                где i-я строка — градиент по i-му объекту батча.
         """
         ...
 
