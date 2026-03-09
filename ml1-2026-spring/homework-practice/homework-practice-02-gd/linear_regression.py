@@ -119,10 +119,9 @@ class LogCosh(LossFunction):
     def loss(self, X: np.ndarray, y: np.ndarray, w: np.ndarray) -> np.ndarray:
         predict = X @ w
         errors = predict - y
-
+        # x > 0
         # log(cosh(x)) = log((e^x + e^-x)/2) =
         # = log(e^x(1 + e^-2x)/2) = x + log(1 + e^-2x) - log(2)
-        # при x > 0.
         abs_errors = np.abs(errors)
         return np.mean(abs_errors + np.log1p(np.exp(-2 * abs_errors)) - np.log(2))
 
@@ -145,7 +144,7 @@ class LogCosh(LossFunction):
 
 
 class HuberLoss(LossFunction):
-    def __init__(self, delta: float = 1.0):
+    def __init__(self, delta: float = 1.5):
         """
         delta: Параметр перехода от квадратичной к линейной функции
         """
